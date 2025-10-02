@@ -18,11 +18,24 @@ A Python tool that renames documents with standardized date prefixes in `YYYY.MM
 - Python 3.6+
 - `requests` library for ChatGPT API integration
 - `reportlab` library for PDF summary generation
+- **OCR and Document Processing Libraries** (for non-OCR'd documents):
+  - `pytesseract` + `tesseract-ocr` for image OCR
+  - `PyMuPDF` for PDF text extraction
+  - `python-docx` for Word documents
+  - `pandas` + `openpyxl` for Excel files
+  - `Pillow` for image processing
 
 ### Setup
 ```bash
-# Install dependencies
-pip install requests reportlab
+# Install Python dependencies
+pip install requests reportlab pytesseract pillow PyMuPDF python-docx pandas openpyxl
+
+# Install Tesseract OCR engine (Ubuntu/Debian)
+sudo apt install tesseract-ocr
+
+# For other systems:
+# macOS: brew install tesseract
+# Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
 
 # Optional: Set up OpenAI API key for enhanced summaries
 export OPENAI_API_KEY="your-api-key-here"
@@ -75,7 +88,28 @@ When provided with an OpenAI API key, the tool generates intelligent summaries b
 - More accurate content analysis
 - Better handling of complex documents
 - Intelligent interpretation of scanned/binary files
-- Context-aware descriptions based on filename patterns
+## OCR and Document Reading
+
+The tool now supports **comprehensive document reading** including non-OCR'd files:
+
+### 📄 Supported File Types:
+- **Text Files**: .txt, .md, .csv, .json, .xml, .html, .log
+- **PDF Files**: Both text-based and scanned PDFs (with OCR)
+- **Image Files**: .jpg, .png, .gif, .bmp, .tiff (with OCR)
+- **Word Documents**: .docx files
+- **Excel Files**: .xlsx files
+
+### 🔍 OCR Capabilities:
+- **Automatic OCR**: Scanned PDFs and images are processed with Tesseract OCR
+- **Smart Detection**: Automatically detects if a PDF needs OCR
+- **Multiple Formats**: Works with all common image formats
+- **Fallback Support**: Gracefully handles files when OCR libraries aren't available
+
+### 📊 Content Analysis:
+- **Real Content**: Reads actual document text, not just filenames
+- **Intelligent Summaries**: Extracts meaningful information from content
+- **Multi-page Support**: Processes multiple pages of PDFs
+- **Error Handling**: Continues processing even if some files can't be read
 
 ## PDF Summary Generation
 

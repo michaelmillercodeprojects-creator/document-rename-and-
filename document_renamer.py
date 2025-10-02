@@ -7,6 +7,7 @@ import os
 import sys
 import re
 import json
+import io
 from datetime import datetime
 from pathlib import Path
 import argparse
@@ -675,7 +676,265 @@ class DocumentRenamer:
             print(f"Error creating summary document: {e}")
             return None
     
-    def get_chatgpt_document_type(self, file_path):
+    def get_chatgpt_content_summary(self, file_path):
+        """Use ChatGPT API to generate a concise content summary"""
+        if not self.openai_api_key:
+            return self.get_local_content_summary(file_path)
+        
+        try:
+            import requests
+        except ImportError:
+            print("Warning: requests library not available. Install with: pip install requests")
+            return self.get_local_content_summary(file_path)
+        
+        try:
+            file_extension = file_path.suffix.lower()
+            filename = file_path.stem
+            
+            # Remove date prefix from filename for cleaner analysis
+            if re.match(r'^\d{4}\.\d{2}\.\d{2}_', filename):
+                clean_filename = filename[11:]
+            else:
+                clean_filename = filename
+            
+            clean_filename = clean_filename.replace('_', ' ').replace('-', ' ')
+            
+            # Extract text content using our comprehensive extraction method
+            content = self.extract_text_from_file(file_path)
+            
+            # Prepare prompt for ChatGPT - focused on content summary
+            if content and len(content.strip()) > 50:
+                prompt = f"""Read this document and provide a concise 2-3 sentence summary of what it's about and its main purpose or content.
+
+Document: {clean_filename}
+
+Content:
+{content[:1500]}
+
+Provide a brief, factual summary of what this document contains, its purpose, or what it discusses. Focus on the actual content, not file details."""
+            else:
+                # For non-text files or files we can't read
+                prompt = f"""Based on the filename, provide a brief 1-2 sentence description of what this document likely contains.
+
+Filename: {clean_filename}
+File type: {file_extension.upper()}
+
+Provide a concise description of what this document probably contains based on its name and type."""
+            
+            # Make API call to OpenAI
+            headers = {
+                'Authorization': f'Bearer {self.openai_api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            data = {
+                'model': 'gpt-3.5-turbo',
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': prompt
+                    }
+                ],
+                'max_tokens': 120,  # Enough for 2-3 sentences
+                'temperature': 0.3
+            }
+            
+            response = requests.post(
+                'https://api.openai.com/v1/chat/completions',
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                summary = result['choices'][0]['message']['content'].strip()
+                
+                # Clean up the response
+                summary = summary.replace('"', '').strip()
+                
+                if summary and len(summary) > 10:
+                    return summary
+                else:
+                    return self.get_local_content_summary(file_path)
+            
+            else:
+                print(f"OpenAI API error: {response.status_code}")
+                return self.get_local_content_summary(file_path)
+                
+        except Exception as e:
+            print(f"Error calling ChatGPT API: {e}")
+            return self.get_local_content_summary(file_path)
+
+    def extract_text_from_file(self, file_path):
+        """Extract text from various file types including non-OCR'd documents"""
+        file_extension = file_path.suffix.lower()
+        content = ""
+        
+        try:
+            # Text-based files
+            if file_extension in {'.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm', '.log'}:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(2000)
+                except Exception:
+                    pass
+            
+            # Image files - use OCR
+            elif file_extension in {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif'}:
+                try:
+                    import pytesseract
+                    from PIL import Image
+                    
+                    print(f"      🔍 Running OCR on image...")
+                    image = Image.open(file_path)
+                    content = pytesseract.image_to_string(image)[:2000]
+                except ImportError:
+                    print(f"      ⚠️  OCR unavailable: pip install pytesseract pillow")
+                    content = ""
+                except Exception as e:
+                    print(f"      ⚠️  OCR failed: {str(e)}")
+                    content = ""
+            
+            # PDF files - try multiple methods
+            elif file_extension == '.pdf':
+                # Method 1: Try PyMuPDF (fitz) for text extraction
+                try:
+                    import fitz  # PyMuPDF
+                    print(f"      📄 Extracting text from PDF...")
+                    doc = fitz.open(file_path)
+                    text_content = ""
+                    for page_num in range(min(3, len(doc))):  # First 3 pages
+                        page = doc.load_page(page_num)
+                        text_content += page.get_text()
+                        if len(text_content) > 2000:
+                            break
+                    doc.close()
+                    content = text_content[:2000]
+                    
+                    # If no text found, might be scanned PDF - try OCR
+                    if len(content.strip()) < 50:
+                        print(f"      🔍 PDF appears to be scanned, trying OCR...")
+                        try:
+                            import pytesseract
+                            from PIL import Image
+                            
+                            # Convert PDF pages to images and OCR
+                            doc = fitz.open(file_path)
+                            ocr_text = ""
+                            for page_num in range(min(2, len(doc))):  # First 2 pages for OCR
+                                page = doc.load_page(page_num)
+                                pix = page.get_pixmap()
+                                img_data = pix.tobytes("ppm")
+                                image = Image.open(io.BytesIO(img_data))
+                                page_text = pytesseract.image_to_string(image)
+                                ocr_text += page_text
+                                if len(ocr_text) > 1500:
+                                    break
+                            doc.close()
+                            content = ocr_text[:2000]
+                        except ImportError:
+                            print(f"      ⚠️  OCR unavailable for scanned PDF: pip install pytesseract pillow")
+                        except Exception as e:
+                            print(f"      ⚠️  PDF OCR failed: {str(e)}")
+                            
+                except ImportError:
+                    print(f"      ⚠️  PDF reading unavailable: pip install PyMuPDF")
+                    content = ""
+                except Exception as e:
+                    print(f"      ⚠️  PDF extraction failed: {str(e)}")
+                    content = ""
+            
+            # Word documents
+            elif file_extension in {'.doc', '.docx'}:
+                try:
+                    import docx
+                    print(f"      📝 Extracting text from Word document...")
+                    doc = docx.Document(file_path)
+                    paragraphs = []
+                    for paragraph in doc.paragraphs:
+                        if paragraph.text.strip():
+                            paragraphs.append(paragraph.text.strip())
+                            if len(' '.join(paragraphs)) > 2000:
+                                break
+                    content = ' '.join(paragraphs)[:2000]
+                except ImportError:
+                    print(f"      ⚠️  Word document reading unavailable: pip install python-docx")
+                    content = ""
+                except Exception as e:
+                    print(f"      ⚠️  Word document extraction failed: {str(e)}")
+                    content = ""
+            
+            # Excel files
+            elif file_extension in {'.xls', '.xlsx'}:
+                try:
+                    import pandas as pd
+                    print(f"      📊 Reading Excel file...")
+                    df = pd.read_excel(file_path, nrows=50)  # First 50 rows
+                    # Convert to string representation
+                    content = df.to_string()[:2000]
+                except ImportError:
+                    print(f"      ⚠️  Excel reading unavailable: pip install pandas openpyxl")
+                    content = ""
+                except Exception as e:
+                    print(f"      ⚠️  Excel extraction failed: {str(e)}")
+                    content = ""
+            
+            return content.strip()
+            
+        except Exception as e:
+            print(f"      ⚠️  Text extraction error: {str(e)}")
+            return ""
+    def get_local_content_summary(self, file_path):
+        """Generate a local content summary by reading the document"""
+        try:
+            filename = file_path.stem
+            
+            # Remove date prefix from filename for cleaner analysis
+            if re.match(r'^\d{4}\.\d{2}\.\d{2}_', filename):
+                clean_filename = filename[11:]
+            else:
+                clean_filename = filename
+            
+            clean_filename = clean_filename.replace('_', ' ').replace('-', ' ')
+            
+            # Extract text content using our comprehensive extraction method
+            content = self.extract_text_from_file(file_path)
+            
+            if content and len(content.strip()) > 50:
+                # Extract meaningful content for summary
+                lines = content.split('\n')
+                meaningful_lines = []
+                
+                for line in lines[:20]:  # Check first 20 lines
+                    line = line.strip()
+                    # Skip headers, dates, and very short lines
+                    if (len(line) > 15 and 
+                        not line.startswith('#') and 
+                        not line.startswith('*') and
+                        not line.startswith('-') and
+                        not re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', line) and
+                        not line.lower().startswith('date:') and
+                        not line.lower().startswith('from:') and
+                        not line.lower().startswith('to:')):
+                        meaningful_lines.append(line)
+                        if len(meaningful_lines) >= 3:
+                            break
+                
+                if meaningful_lines:
+                    # Create a summary from the meaningful content
+                    summary_text = ' '.join(meaningful_lines[:2])
+                    if len(summary_text) > 200:
+                        summary_text = summary_text[:200] + "..."
+                    
+                    return f"This document discusses: {summary_text}"
+            
+            # Fallback for non-readable files or when content analysis fails
+            doc_type = self.get_document_type_description(file_path).lower()
+            return f"This appears to be a {doc_type} titled '{clean_filename.title()}'. Unable to extract readable text content for detailed analysis."
+            
+        except Exception as e:
+            return f"Unable to analyze document content: {str(e)}"
         """Use ChatGPT API to identify document type"""
         if not self.openai_api_key:
             return self.get_document_type_description(file_path)
@@ -1135,15 +1394,11 @@ This appears to be a document that may be scanned, binary, or in a format that r
             return "Document"
 
     def get_document_summary(self, file_path, max_sentences=3):
-        """Generate a document description (kept for compatibility)"""
+        """Generate a content summary of the document"""
         if self.openai_api_key:
-            # Use ChatGPT for document type identification
-            doc_type = self.get_chatgpt_document_type(file_path)
-            return [f"Document Type: {doc_type}"]
+            return [self.get_chatgpt_content_summary(file_path)]
         else:
-            # Use local document type identification
-            doc_type = self.get_document_type_description(file_path)
-            return [f"Document Type: {doc_type}"]
+            return [self.get_local_content_summary(file_path)]
 
     def create_pdf_summary(self, output_dir=None, summarize_only=False):
         """Create a comprehensive PDF summary of all documents"""
@@ -1284,19 +1539,27 @@ This appears to be a document that may be scanned, binary, or in a format that r
                 content.append(Paragraph(f"<b>File:</b> {file_path.name}", body_style))
                 content.append(Paragraph(f"<b>Type:</b> {file_ext} file, {file_size_str}", body_style))
                 
-                # Get document type description
+                # Add section
+                content.append(Paragraph(f"{i}. {clean_title}", subheading_style))
+                content.append(Paragraph(f"<b>File:</b> {file_path.name}", body_style))
+                content.append(Paragraph(f"<b>Type:</b> {file_ext} file, {file_size_str}", body_style))
+                
+                # Get document content summary
                 try:
                     if self.openai_api_key:
-                        print(f"      🤖 Identifying document type with ChatGPT...")
-                        doc_type = self.get_chatgpt_document_type(file_path)
+                        print(f"      🤖 Generating content summary with ChatGPT...")
+                        summary = self.get_chatgpt_content_summary(file_path)
                     else:
-                        print(f"      🔍 Identifying document type...")
-                        doc_type = self.get_document_type_description(file_path)
-                    content.append(Paragraph(f"<b>Document Type:</b> {doc_type}", body_style))
+                        print(f"      � Analyzing document content...")
+                        summary = self.get_local_content_summary(file_path)
+                    
+                    # Clean summary for PDF
+                    clean_summary = summary.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+                    content.append(Paragraph(f"<b>Summary:</b> {clean_summary}", body_style))
                 
                 except Exception as e:
-                    print(f"      ⚠️  Error identifying document type: {str(e)}")
-                    content.append(Paragraph(f"<b>Document Type:</b> Unknown", body_style))
+                    print(f"      ⚠️  Error generating summary: {str(e)}")
+                    content.append(Paragraph(f"<b>Summary:</b> Error analyzing document content: {str(e)}", body_style))
                 
                 content.append(Spacer(1, 20))
                 
