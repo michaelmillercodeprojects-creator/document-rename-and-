@@ -30,12 +30,18 @@ A Python tool that renames documents with standardized date prefixes in `YYYY.MM
 # Install Python dependencies
 pip install requests reportlab pytesseract pillow PyMuPDF python-docx pandas openpyxl
 
-# Install Tesseract OCR engine (Ubuntu/Debian)
+# Install Tesseract OCR engine
+# Ubuntu/Debian:
 sudo apt install tesseract-ocr
 
-# For other systems:
-# macOS: brew install tesseract
-# Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
+# macOS:
+brew install tesseract
+
+# Windows:
+# Download from: https://github.com/UB-Mannheim/tesseract/wiki
+# Or use Chocolatey: choco install tesseract
+
+# The tool automatically detects Tesseract in common locations!
 
 # Optional: Set up OpenAI API key for enhanced summaries
 export OPENAI_API_KEY="your-api-key-here"
@@ -101,9 +107,19 @@ The tool now supports **comprehensive document reading** including non-OCR'd fil
 
 ### 🔍 OCR Capabilities:
 - **Automatic OCR**: Scanned PDFs and images are processed with Tesseract OCR
-- **Smart Detection**: Automatically detects if a PDF needs OCR
+- **Smart Path Detection**: Automatically finds Tesseract in common installation locations
+- **Cross-Platform**: Works on Windows, macOS, and Linux without manual configuration
 - **Multiple Formats**: Works with all common image formats
 - **Fallback Support**: Gracefully handles files when OCR libraries aren't available
+
+### 🛠️ Tesseract Auto-Detection:
+The tool automatically searches for Tesseract in these locations:
+- **Windows**: `C:\Program Files\Tesseract-OCR\`, Chocolatey paths, Conda environments
+- **macOS**: `/usr/local/bin/`, `/opt/homebrew/bin/`, Homebrew locations  
+- **Linux**: `/usr/bin/`, `/usr/local/bin/`, Snap packages
+- **Environment Variables**: `TESSERACT_PATH`, `TESSDATA_PREFIX`
+
+No manual path configuration needed in most cases!
 
 ### 📊 Content Analysis:
 - **Real Content**: Reads actual document text, not just filenames

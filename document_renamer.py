@@ -8,6 +8,8 @@ import sys
 import re
 import json
 import io
+import platform
+import shutil
 from datetime import datetime
 from pathlib import Path
 import argparse
@@ -766,6 +768,76 @@ Provide a concise description of what this document probably contains based on i
             print(f"Error calling ChatGPT API: {e}")
             return self.get_local_content_summary(file_path)
 
+    def configure_tesseract_path(self):
+        """Configure Tesseract OCR path for different operating systems"""
+        try:
+            import pytesseract
+            import platform
+            import shutil
+            
+            # Check if tesseract is already in PATH
+            if shutil.which('tesseract'):
+                return  # Already available
+            
+            # Common Tesseract installation paths by OS
+            system = platform.system().lower()
+            
+            possible_paths = []
+            
+            if system == 'windows':
+                possible_paths = [
+                    r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                    r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+                    r'C:\Users\Public\Tesseract-OCR\tesseract.exe',
+                    r'C:\Tesseract-OCR\tesseract.exe',
+                    # Chocolatey install
+                    r'C:\ProgramData\chocolatey\bin\tesseract.exe',
+                    # Conda install
+                    r'C:\Users\{}\Anaconda3\Library\bin\tesseract.exe'.format(os.environ.get('USERNAME', '')),
+                    r'C:\Users\{}\Miniconda3\Library\bin\tesseract.exe'.format(os.environ.get('USERNAME', '')),
+                ]
+            elif system == 'darwin':  # macOS
+                possible_paths = [
+                    '/usr/local/bin/tesseract',
+                    '/opt/homebrew/bin/tesseract',
+                    '/usr/bin/tesseract',
+                    '/opt/local/bin/tesseract',  # MacPorts
+                ]
+            else:  # Linux and others
+                possible_paths = [
+                    '/usr/bin/tesseract',
+                    '/usr/local/bin/tesseract',
+                    '/bin/tesseract',
+                    '/snap/bin/tesseract',  # Snap install
+                    '/usr/share/tesseract-ocr/tesseract',
+                ]
+            
+            # Try to find tesseract executable
+            for path in possible_paths:
+                if os.path.exists(path):
+                    pytesseract.pytesseract.tesseract_cmd = path
+                    print(f"      ✅ Found Tesseract at: {path}")
+                    return
+            
+            # If not found, try common environment variables
+            env_paths = [
+                os.environ.get('TESSERACT_PATH'),
+                os.environ.get('TESSDATA_PREFIX'),
+            ]
+            
+            for env_path in env_paths:
+                if env_path:
+                    tesseract_exe = os.path.join(env_path, 'tesseract.exe' if system == 'windows' else 'tesseract')
+                    if os.path.exists(tesseract_exe):
+                        pytesseract.pytesseract.tesseract_cmd = tesseract_exe
+                        print(f"      ✅ Found Tesseract via environment: {tesseract_exe}")
+                        return
+            
+            print(f"      ⚠️  Tesseract not found in common locations. Please install or set TESSERACT_PATH environment variable.")
+            
+        except Exception as e:
+            print(f"      ⚠️  Error configuring Tesseract: {str(e)}")
+
     def extract_text_from_file(self, file_path):
         """Extract text from various file types including non-OCR'd documents"""
         file_extension = file_path.suffix.lower()
@@ -785,6 +857,9 @@ Provide a concise description of what this document probably contains based on i
                 try:
                     import pytesseract
                     from PIL import Image
+                    
+                    # Configure Tesseract path if not in PATH
+                    self.configure_tesseract_path()
                     
                     print(f"      🔍 Running OCR on image...")
                     image = Image.open(file_path)
@@ -818,6 +893,9 @@ Provide a concise description of what this document probably contains based on i
                         try:
                             import pytesseract
                             from PIL import Image
+                            
+                            # Configure Tesseract path if not in PATH
+                            self.configure_tesseract_path()
                             
                             # Convert PDF pages to images and OCR
                             doc = fitz.open(file_path)
