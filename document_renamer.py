@@ -675,7 +675,109 @@ class DocumentRenamer:
             print(f"Error creating summary document: {e}")
             return None
     
-    def get_chatgpt_summary(self, file_path, max_sentences=3):
+    def get_chatgpt_document_type(self, file_path):
+        """Use ChatGPT API to identify document type"""
+        if not self.openai_api_key:
+            return self.get_document_type_description(file_path)
+        
+        try:
+            import requests
+        except ImportError:
+            print("Warning: requests library not available. Install with: pip install requests")
+            return self.get_document_type_description(file_path)
+        
+        try:
+            file_extension = file_path.suffix.lower()
+            filename = file_path.stem
+            
+            # Remove date prefix from filename for cleaner analysis
+            if re.match(r'^\d{4}\.\d{2}\.\d{2}_', filename):
+                clean_filename = filename[11:]
+            else:
+                clean_filename = filename
+            
+            clean_filename = clean_filename.replace('_', ' ').replace('-', ' ')
+            
+            # Try to read content for text files
+            content = ""
+            is_text_file = file_extension in {'.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm', '.log'}
+            
+            if is_text_file:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(1000)  # Read first 1000 chars
+                except Exception:
+                    pass
+            
+            # Prepare prompt for ChatGPT - focused on document type identification
+            if content and len(content.strip()) > 50:
+                prompt = f"""Based on the filename and content, identify what type of document this is in 1-3 words maximum.
+
+Filename: {clean_filename}
+File type: {file_extension.upper()}
+
+Content preview:
+{content[:800]}
+
+Examples of good responses: "Invoice", "Meeting Notes", "Contract", "Transcript", "Email", "Report", "Research Paper", "Presentation", "Manual", "Policy Document"
+
+Response (1-3 words only):"""
+            else:
+                # For non-text files or files we can't read
+                prompt = f"""Based on the filename and file type, identify what type of document this likely is in 1-3 words maximum.
+
+Filename: {clean_filename}
+File type: {file_extension.upper()}
+
+Examples of good responses: "Invoice", "Contract", "Report", "Presentation", "Image File", "Spreadsheet", "PDF Document"
+
+Response (1-3 words only):"""
+            
+            # Make API call to OpenAI
+            headers = {
+                'Authorization': f'Bearer {self.openai_api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            data = {
+                'model': 'gpt-3.5-turbo',
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': prompt
+                    }
+                ],
+                'max_tokens': 20,  # Very short response
+                'temperature': 0.1  # Low temperature for consistent classification
+            }
+            
+            response = requests.post(
+                'https://api.openai.com/v1/chat/completions',
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                doc_type = result['choices'][0]['message']['content'].strip()
+                
+                # Clean up the response
+                doc_type = doc_type.replace('"', '').replace("'", '').strip()
+                
+                # Ensure it's title case and reasonable length
+                if len(doc_type) <= 50 and doc_type:
+                    return doc_type.title()
+                else:
+                    return self.get_document_type_description(file_path)
+            
+            else:
+                print(f"OpenAI API error: {response.status_code}")
+                return self.get_document_type_description(file_path)
+                
+        except Exception as e:
+            print(f"Error calling ChatGPT API: {e}")
+            return self.get_document_type_description(file_path)
         """Generate summary using ChatGPT API"""
         if not self.openai_api_key:
             return self.get_fallback_summary(file_path, max_sentences)
@@ -1033,11 +1135,15 @@ This appears to be a document that may be scanned, binary, or in a format that r
             return "Document"
 
     def get_document_summary(self, file_path, max_sentences=3):
-        """Generate a 3-sentence summary of the document (kept for compatibility)"""
+        """Generate a document description (kept for compatibility)"""
         if self.openai_api_key:
-            return self.get_chatgpt_summary(file_path, max_sentences)
+            # Use ChatGPT for document type identification
+            doc_type = self.get_chatgpt_document_type(file_path)
+            return [f"Document Type: {doc_type}"]
         else:
-            return self.get_fallback_summary(file_path, max_sentences)
+            # Use local document type identification
+            doc_type = self.get_document_type_description(file_path)
+            return [f"Document Type: {doc_type}"]
 
     def create_pdf_summary(self, output_dir=None, summarize_only=False):
         """Create a comprehensive PDF summary of all documents"""
@@ -1180,8 +1286,12 @@ This appears to be a document that may be scanned, binary, or in a format that r
                 
                 # Get document type description
                 try:
-                    print(f"      🔍 Identifying document type...")
-                    doc_type = self.get_document_type_description(file_path)
+                    if self.openai_api_key:
+                        print(f"      🤖 Identifying document type with ChatGPT...")
+                        doc_type = self.get_chatgpt_document_type(file_path)
+                    else:
+                        print(f"      🔍 Identifying document type...")
+                        doc_type = self.get_document_type_description(file_path)
                     content.append(Paragraph(f"<b>Document Type:</b> {doc_type}", body_style))
                 
                 except Exception as e:
