@@ -1,19 +1,74 @@
-# Document Renamer
+# Document Renamer with ChatGPT Summaries
 
-A Python program that automatically extracts dates from document content and renames files with the extracted date prefix, providing a two-line summary for each file processed.
+A Python tool that renames documents with standardized date prefixes in `YYYY.MM.DD_` format and generates intelligent summaries using ChatGPT API. The tool extracts dates from filenames and organizes documents chronologically while creating comprehensive summaries.
 
 ## Features
 
-- **Smart Date Extraction**: Automatically finds and extracts dates from document content
-- Renames files with format: `YYYY.MM.DD_OriginalFileName.ext`
-- Provides a summary showing file type, size, and extracted date
-- **Creates detailed summary document** with all processed files, their titles, and content previews
-- Processes all files in a specified folder
-- Supports dry-run mode to preview changes
-- Handles duplicate names automatically
-- Sanitizes filenames (removes invalid characters, replaces spaces with underscores)
-- Skips hidden files and already processed files
-- Prioritizes important dates (document dates, invoice dates) over secondary dates (due dates)
+- **Smart Date Extraction**: Extracts dates from various filename formats
+- **Standardized Naming**: Renames files with `YYYY.MM.DD_` prefix format
+- **AI-Powered Summaries**: Uses ChatGPT API to generate intelligent document summaries
+- **Fallback Summaries**: Provides descriptive summaries when API is unavailable
+- **Date Cleanup**: Remove redundant date patterns from filenames
+- **Flexible Operation**: Dry-run mode, custom dates, and various options
+- **Comprehensive Logging**: Detailed processing information and error handling
+
+## Installation
+
+### Requirements
+- Python 3.6+
+- `requests` library for ChatGPT API integration
+
+### Setup
+```bash
+# Install dependencies
+pip install requests
+
+# Optional: Set up OpenAI API key for enhanced summaries
+export OPENAI_API_KEY="your-api-key-here"
+```
+
+## Usage
+
+### Basic Usage
+```bash
+# Rename files with date prefixes and create summaries
+python document_renamer.py /path/to/documents
+
+# Use ChatGPT API for enhanced summaries
+python document_renamer.py /path/to/documents --openai-api-key "your-api-key"
+
+# Dry run to see what would happen
+python document_renamer.py /path/to/documents --dry-run
+
+# Remove date patterns from end of filenames
+python document_renamer.py /path/to/documents --remove-dates
+```
+
+### Advanced Options
+```bash
+# Use specific default date
+python document_renamer.py /path/to/documents --date 2024-01-15
+
+# Don't extract dates from filenames, use default for all
+python document_renamer.py /path/to/documents --no-extract --date 2024-01-15
+
+# Skip summary document creation
+python document_renamer.py /path/to/documents --no-summary
+```
+
+## ChatGPT Integration
+
+When provided with an OpenAI API key, the tool generates intelligent summaries by:
+
+1. **Text Files**: Reading content and asking ChatGPT to summarize the actual document content
+2. **Binary/Scanned Files**: Using filename and file type information to generate descriptive summaries
+3. **Fallback Mode**: Using built-in logic when API is unavailable or fails
+
+### Benefits of ChatGPT Summaries
+- More accurate content analysis
+- Better handling of complex documents
+- Intelligent interpretation of scanned/binary files
+- Context-aware descriptions based on filename patterns
 
 ## Summary Document
 

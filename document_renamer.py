@@ -9,20 +9,23 @@ import re
 from datetime import datetime
 from pathlib import Path
 import argparse
+import json
 
 
 class DocumentRenamer:
-    def __init__(self, folder_path, date_override=None, use_file_dates=True):
+    def __init__(self, folder_path, date_override=None, use_file_dates=True, openai_api_key=None):
         """
         Initialize the DocumentRenamer
         
         Args:
             folder_path (str): Path to the folder containing documents to rename
             date_override (str): Optional date override in YYYY-MM-DD format
-            use_file_dates (bool): If True, extract dates from document content
+            use_file_dates (bool): If True, extract dates from filenames
+            openai_api_key (str): OpenAI API key for generating summaries
         """
         self.folder_path = Path(folder_path)
         self.use_file_dates = use_file_dates
+        self.openai_api_key = openai_api_key
         
         if date_override:
             try:
@@ -671,110 +674,257 @@ class DocumentRenamer:
             print(f"Error creating summary document: {e}")
             return None
     
-    def get_document_summary(self, file_path, max_sentences=3):
-        """Generate a 3-sentence summary of the document content"""
+    def get_chatgpt_summary(self, file_path, max_sentences=3):
+        """Generate summary using ChatGPT API"""
+        if not self.openai_api_key:
+            return self.get_fallback_summary(file_path, max_sentences)
+        
         try:
-            encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+            import requests
+        except ImportError:
+            print("Warning: requests library not available. Install with: pip install requests")
+            return self.get_fallback_summary(file_path, max_sentences)
+        
+        try:
+            file_extension = file_path.suffix.lower()
+            file_size = file_path.stat().st_size
+            filename = file_path.stem
             
-            for encoding in encodings:
+            # Remove date prefix from filename for cleaner title
+            if re.match(r'^\d{4}\.\d{2}\.\d{2}_', filename):
+                clean_filename = filename[11:]
+            else:
+                clean_filename = filename
+            
+            clean_filename = clean_filename.replace('_', ' ').replace('-', ' ')
+            file_size_str = self.format_file_size(file_size)
+            
+            # Try to read content for text files
+            content = ""
+            is_text_file = file_extension in {'.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm', '.log'}
+            
+            if is_text_file:
                 try:
-                    with open(file_path, 'r', encoding=encoding) as f:
-                        content = f.read()
-                        
-                        # Clean up the content
-                        content = content.strip()
-                        
-                        # Remove common document formatting
-                        lines = content.split('\n')
-                        cleaned_lines = []
-                        
-                        for line in lines:
-                            line = line.strip()
-                            # Skip empty lines, headers with #, and very short lines
-                            if len(line) > 10 and not line.startswith('#') and not line.startswith('*'):
-                                # Skip lines that look like metadata
-                                if not any(keyword in line.lower() for keyword in ['date:', 'time:', 'location:', 'attendees:', 'customer:', 'invoice']):
-                                    cleaned_lines.append(line)
-                        
-                        # Join the cleaned content
-                        cleaned_content = ' '.join(cleaned_lines)
-                        
-                        # Split into sentences
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(2000)  # Read first 2000 chars
+                except Exception:
+                    pass
+            
+            # Prepare prompt for ChatGPT
+            if content and len(content.strip()) > 50:
+                prompt = f"""Please provide exactly 3 sentences summarizing this document:
+
+Filename: {clean_filename}
+File type: {file_extension.upper()}
+File size: {file_size_str}
+
+Content preview:
+{content[:1500]}
+
+Please respond with exactly 3 sentences that describe what this document is about, its purpose, and key information. Do not include any other text or formatting."""
+            else:
+                # For non-text files or files we can't read
+                prompt = f"""Please provide exactly 3 sentences describing this document based on its filename and file type:
+
+Filename: {clean_filename}
+File type: {file_extension.upper()}
+File size: {file_size_str}
+
+This appears to be a document that may be scanned, binary, or in a format that requires special software to read. Please provide 3 sentences describing what this document likely contains based on the filename and file type, its probable purpose, and what kind of information it might hold."""
+            
+            # Make API call to OpenAI
+            headers = {
+                'Authorization': f'Bearer {self.openai_api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            data = {
+                'model': 'gpt-3.5-turbo',
+                'messages': [
+                    {
+                        'role': 'user',
+                        'content': prompt
+                    }
+                ],
+                'max_tokens': 200,
+                'temperature': 0.3
+            }
+            
+            response = requests.post(
+                'https://api.openai.com/v1/chat/completions',
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                summary_text = result['choices'][0]['message']['content'].strip()
+                
+                # Split into sentences and clean up
+                sentences = []
+                for delimiter in ['. ', '! ', '? ']:
+                    parts = summary_text.split(delimiter)
+                    if len(parts) > 1:
+                        for i, part in enumerate(parts):
+                            if part.strip():
+                                sentences.append(part.strip() + (delimiter.strip() if i < len(parts)-1 and part != parts[-1] else ''))
+                        break
+                else:
+                    # If no delimiters found, treat as single sentence
+                    sentences = [summary_text]
+                
+                # Clean up and return up to max_sentences
+                clean_sentences = []
+                for sentence in sentences[:max_sentences]:
+                    sentence = sentence.strip()
+                    if sentence and len(sentence) > 5:
+                        # Ensure sentence ends with punctuation
+                        if not sentence[-1] in '.!?':
+                            sentence += '.'
+                        clean_sentences.append(sentence)
+                
+                if clean_sentences:
+                    return clean_sentences
+            
+            else:
+                print(f"OpenAI API error: {response.status_code} - {response.text}")
+                return self.get_fallback_summary(file_path, max_sentences)
+                
+        except Exception as e:
+            print(f"Error calling ChatGPT API: {e}")
+            return self.get_fallback_summary(file_path, max_sentences)
+    
+    def get_fallback_summary(self, file_path, max_sentences=3):
+        """Generate fallback summary when ChatGPT API is not available"""
+        try:
+            file_extension = file_path.suffix.lower()
+            file_size = file_path.stat().st_size
+            filename = file_path.stem
+            
+            # Try to read content for text-based files
+            content = ""
+            is_readable = False
+            
+            # Only attempt to read content for likely text files
+            text_extensions = {'.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm', '.log'}
+            
+            if file_extension in text_extensions:
+                encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+                
+                for encoding in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=encoding) as f:
+                            content = f.read(500)  # Read first 500 chars to check if it's readable
+                            # Check if content seems like text (not binary)
+                            if len(content) > 20 and not any(ord(c) < 32 and c not in '\n\r\t' for c in content[:100]):
+                                is_readable = True
+                                break
+                    except (UnicodeDecodeError, PermissionError):
+                        continue
+            
+            # Generate summary based on available information
+            if is_readable and content.strip():
+                # For readable text files, try to extract meaningful content
+                lines = content.split('\n')
+                cleaned_lines = []
+                
+                for line in lines:
+                    line = line.strip()
+                    if len(line) > 10 and not line.startswith('#') and not line.startswith('*'):
+                        if not any(keyword in line.lower() for keyword in ['date:', 'time:', 'location:']):
+                            cleaned_lines.append(line)
+                
+                if cleaned_lines:
+                    # Try to create content-based summary
+                    summary_text = ' '.join(cleaned_lines[:3])
+                    if len(summary_text) > 50:
                         sentences = []
                         for delimiter in ['. ', '! ', '? ']:
-                            parts = cleaned_content.split(delimiter)
+                            parts = summary_text.split(delimiter)
                             if len(parts) > 1:
-                                for i, part in enumerate(parts[:-1]):
-                                    sentences.append(part.strip() + delimiter.strip())
-                                sentences.append(parts[-1].strip())
+                                for i, part in enumerate(parts[:max_sentences]):
+                                    if part.strip():
+                                        sentences.append(part.strip() + (delimiter.strip() if i < len(parts)-1 else ''))
                                 break
-                        else:
-                            # If no sentence delimiters found, split by length
-                            words = cleaned_content.split()
-                            chunk_size = len(words) // max_sentences if len(words) > max_sentences * 10 else len(words)
-                            for i in range(0, len(words), chunk_size):
-                                chunk = ' '.join(words[i:i + chunk_size])
-                                if chunk.strip():
-                                    sentences.append(chunk.strip())
                         
-                        # Filter and select the best sentences
-                        good_sentences = []
-                        for sentence in sentences:
-                            sentence = sentence.strip()
-                            if len(sentence) > 20 and len(sentence) < 200:  # Reasonable sentence length
-                                good_sentences.append(sentence)
-                        
-                        # Take the first few good sentences, up to max_sentences
-                        summary_sentences = good_sentences[:max_sentences]
-                        
-                        # If we don't have enough good sentences, create a descriptive summary
-                        if len(summary_sentences) < 2:
-                            # Analyze the document type and content
-                            content_lower = content.lower()
-                            
-                            if 'invoice' in content_lower:
-                                summary_sentences = [
-                                    f"This is an invoice document for business services or products.",
-                                    f"It contains billing information, itemized charges, and payment terms.",
-                                    f"The document includes customer details and financial calculations."
-                                ]
-                            elif 'meeting' in content_lower or 'minutes' in content_lower:
-                                summary_sentences = [
-                                    f"This document contains meeting minutes or notes from a business meeting.",
-                                    f"It includes attendee information, agenda items, and discussion points.",
-                                    f"Action items and follow-up tasks are documented for future reference."
-                                ]
-                            elif 'report' in content_lower or 'financial' in content_lower:
-                                summary_sentences = [
-                                    f"This is a business report containing performance or financial data.",
-                                    f"It includes analysis, metrics, and key performance indicators.",
-                                    f"The report provides insights and recommendations for business decisions."
-                                ]
-                            elif 'project' in content_lower:
-                                summary_sentences = [
-                                    f"This document relates to project management and planning activities.",
-                                    f"It contains project status updates, timelines, and deliverables.",
-                                    f"Team information and project milestones are documented."
-                                ]
-                            else:
-                                # Generic summary based on content
-                                word_count = len(content.split())
-                                doc_type = file_path.suffix.upper().replace('.', '')
-                                summary_sentences = [
-                                    f"This is a {doc_type} document containing {word_count} words of text content.",
-                                    f"The document appears to contain business or organizational information.",
-                                    f"It includes structured information relevant to its intended purpose."
-                                ]
-                        
-                        return summary_sentences[:max_sentences]
-                        
-                except UnicodeDecodeError:
-                    continue
+                        if sentences:
+                            return sentences[:max_sentences]
             
-            return ["Unable to read document content.", "The file may be in an unsupported format.", "No content summary available."]
+            # For non-readable files or when content extraction fails, create descriptive summary
+            file_size_str = self.format_file_size(file_size)
+            
+            # Extract meaningful information from filename
+            filename_clean = filename.replace('_', ' ').replace('-', ' ')
+            # Remove date prefix if present
+            if re.match(r'^\d{4}\.\d{2}\.\d{2}\s+', filename_clean):
+                filename_clean = filename_clean[11:].strip()
+            
+            # Generate summary based on file type and name
+            if file_extension == '.pdf':
+                summary_sentences = [
+                    f"This is a PDF document titled '{filename_clean}' with a file size of {file_size_str}.",
+                    f"The document appears to be a scanned or non-text-searchable PDF file.",
+                    f"Content analysis requires OCR processing to extract readable text."
+                ]
+            elif file_extension in {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'}:
+                summary_sentences = [
+                    f"This is an image file titled '{filename_clean}' in {file_extension.upper()} format.",
+                    f"The image has a file size of {file_size_str} and may contain document content.",
+                    f"Text extraction would require OCR processing to analyze any textual content."
+                ]
+            elif file_extension in {'.doc', '.docx'}:
+                summary_sentences = [
+                    f"This is a Microsoft Word document titled '{filename_clean}' with a file size of {file_size_str}.",
+                    f"The document may contain formatted text, images, and other elements.",
+                    f"Advanced document parsing would be required to extract detailed content information."
+                ]
+            elif file_extension in {'.xls', '.xlsx'}:
+                summary_sentences = [
+                    f"This is a Microsoft Excel spreadsheet titled '{filename_clean}' with a file size of {file_size_str}.",
+                    f"The spreadsheet likely contains tabular data, formulas, and calculations.",
+                    f"Detailed analysis would require specialized Excel parsing to examine cell contents."
+                ]
+            elif file_extension in {'.ppt', '.pptx'}:
+                summary_sentences = [
+                    f"This is a Microsoft PowerPoint presentation titled '{filename_clean}' with a file size of {file_size_str}.",
+                    f"The presentation likely contains slides with text, images, and multimedia elements.",
+                    f"Content extraction would require specialized presentation parsing tools."
+                ]
+            else:
+                # Generic file summary
+                summary_sentences = [
+                    f"This is a {file_extension.upper().replace('.', '')} file titled '{filename_clean}' with a file size of {file_size_str}.",
+                    f"The file format may require specialized software or tools for content analysis.",
+                    f"Manual review of the document would be needed to determine specific content details."
+                ]
+            
+            return summary_sentences[:max_sentences]
             
         except Exception as e:
-            return [f"Error analyzing document: {str(e)}", "Unable to generate content summary.", "Manual review may be required."]
+            return [
+                f"Error analyzing document: {str(e)}",
+                "The file may be corrupted, inaccessible, or in an unsupported format.",
+                "Manual review of the document is recommended."
+            ]
+
+    def format_file_size(self, size_bytes):
+        """Format file size in human-readable format"""
+        if size_bytes < 1024:
+            return f"{size_bytes} bytes"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    def get_document_summary(self, file_path, max_sentences=3):
+        """Generate a 3-sentence summary of the document"""
+        if self.openai_api_key:
+            return self.get_chatgpt_summary(file_path, max_sentences)
+        else:
+            return self.get_fallback_summary(file_path, max_sentences)
 
     def print_summary(self):
         """Print a final summary of the operation"""
@@ -833,6 +983,10 @@ def main():
         action="store_true",
         help="Remove date patterns from end of filenames instead of adding date prefixes"
     )
+    parser.add_argument(
+        "--openai-api-key",
+        help="OpenAI API key for ChatGPT-powered document summaries"
+    )
     
     args = parser.parse_args()
     
@@ -840,7 +994,7 @@ def main():
         use_file_dates = not args.no_extract
         create_summary = not args.no_summary
         
-        renamer = DocumentRenamer(args.folder, args.date, use_file_dates)
+        renamer = DocumentRenamer(args.folder, args.date, use_file_dates, args.openai_api_key)
         
         if args.remove_dates:
             # Remove dates from filenames
