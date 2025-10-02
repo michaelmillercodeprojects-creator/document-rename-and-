@@ -1044,7 +1044,11 @@ This appears to be a document that may be scanned, binary, or in a format that r
             content.append(Paragraph("Document Analysis", heading_style))
             content.append(Spacer(1, 12))
             
+            print(f"📊 Analyzing {len(files_to_process)} documents...")
+            
             for i, file_path in enumerate(files_to_process, 1):
+                print(f"   📄 Processing {i}/{len(files_to_process)}: {file_path.name}")
+                
                 # Extract clean title from filename
                 filename = file_path.stem
                 if re.match(r'^\d{4}\.\d{2}\.\d{2}_', filename):
@@ -1064,6 +1068,7 @@ This appears to be a document that may be scanned, binary, or in a format that r
                 
                 # Get document summary
                 try:
+                    print(f"      🤖 Generating summary...")
                     summary_sentences = self.get_document_summary(file_path, max_sentences=3)
                     content.append(Paragraph("<b>Summary:</b>", body_style))
                     
@@ -1073,6 +1078,7 @@ This appears to be a document that may be scanned, binary, or in a format that r
                         content.append(Paragraph(f"{j}. {clean_sentence}", body_style))
                 
                 except Exception as e:
+                    print(f"      ⚠️  Error generating summary: {str(e)}")
                     content.append(Paragraph(f"<b>Summary:</b> Error generating summary: {str(e)}", body_style))
                 
                 content.append(Spacer(1, 20))
@@ -1085,6 +1091,7 @@ This appears to be a document that may be scanned, binary, or in a format that r
             content.append(Paragraph("No documents found to analyze.", styles['Normal']))
         
         # Statistics section
+        print(f"📈 Generating statistics and building PDF...")
         content.append(PageBreak())
         content.append(Paragraph("Summary Statistics", heading_style))
         content.append(Spacer(1, 12))
@@ -1111,7 +1118,9 @@ This appears to be a document that may be scanned, binary, or in a format that r
                 content.append(Paragraph(f"• {ext_display}: {count} files", body_style))
         
         # Build PDF
+        print(f"📝 Finalizing PDF document...")
         doc.build(content)
+        print(f"✅ PDF generation complete!")
         
         return pdf_path
 
