@@ -1534,15 +1534,8 @@ This appears to be a document that may be scanned, binary, or in a format that r
                 file_size_str = self.format_file_size(file_size)
                 file_ext = file_path.suffix.upper()
                 
-                # Add section
+                # Add document section - just title and summary
                 content.append(Paragraph(f"{i}. {clean_title}", subheading_style))
-                content.append(Paragraph(f"<b>File:</b> {file_path.name}", body_style))
-                content.append(Paragraph(f"<b>Type:</b> {file_ext} file, {file_size_str}", body_style))
-                
-                # Add section
-                content.append(Paragraph(f"{i}. {clean_title}", subheading_style))
-                content.append(Paragraph(f"<b>File:</b> {file_path.name}", body_style))
-                content.append(Paragraph(f"<b>Type:</b> {file_ext} file, {file_size_str}", body_style))
                 
                 # Get document content summary
                 try:
@@ -1555,7 +1548,7 @@ This appears to be a document that may be scanned, binary, or in a format that r
                     
                     # Clean summary for PDF
                     clean_summary = summary.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-                    content.append(Paragraph(f"<b>Summary:</b> {clean_summary}", body_style))
+                    content.append(Paragraph(clean_summary, body_style))
                 
                 except Exception as e:
                     print(f"      ⚠️  Error generating summary: {str(e)}")
