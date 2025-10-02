@@ -1,0 +1,17 @@
+INVOICE #2024-001
+
+Bill To: ABC Corporation
+Invoice Date: July 15, 2024
+Due Date: August 15, 2024
+
+Services Rendered:
+- Consulting Services (40 hours @ $150/hr): $6,000
+- Project Management (20 hours @ $125/hr): $2,500
+- Documentation (10 hours @ $100/hr): $1,000
+
+Subtotal: $9,500
+Tax (8.5%): $807.50
+Total Amount Due: $10,307.50
+
+Payment Terms: Net 30 days
+Thank you for your business!

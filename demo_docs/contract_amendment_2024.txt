@@ -1,0 +1,14 @@
+CONTRACT AMENDMENT - Service Agreement
+
+Amendment Date: August 22, 2024
+Original Contract Date: January 10, 2024
+Parties: TechCorp Inc. and ServiceProvider LLC
+
+This amendment modifies the following terms:
+1. Service delivery timeline extended to December 31, 2024
+2. Additional services added: data migration and training
+3. Payment terms adjusted to net-30 days
+4. Milestone deliverables updated per attached schedule
+
+Both parties agree to these modifications effective immediately.
+Signatures required by both parties within 15 business days.

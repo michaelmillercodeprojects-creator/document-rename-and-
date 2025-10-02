@@ -1,0 +1,20 @@
+Research Paper: Digital Transformation in Small Business
+
+Abstract:
+This study examines the impact of digital transformation initiatives on small business performance.
+Through analysis of 200 companies over 18 months, we identify key success factors and common challenges.
+
+Introduction:
+Digital transformation has become critical for business survival in the modern economy.
+Small businesses face unique challenges in implementing these changes due to resource constraints.
+
+Methodology:
+- Survey of 200 small businesses (50-250 employees)
+- 18-month longitudinal study
+- Performance metrics tracked quarterly
+- Qualitative interviews with leadership teams
+
+Findings:
+Companies that invested in digital transformation showed 23% average revenue growth.
+Key success factors include leadership commitment and employee training.
+Main barriers include budget constraints and technical expertise gaps.
