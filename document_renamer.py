@@ -281,6 +281,155 @@ class DocumentRenamer:
         
         return True
     
+    def remove_date_from_filename(self, file_path):
+        """
+        Remove date patterns from the end of a filename (keeps YYYY.MM.DD_ prefix at beginning)
+        
+        Args:
+            file_path (Path): Path to the file
+            
+        Returns:
+            tuple: (success, old_name, new_name, error_message)
+        """
+        try:
+            filename = file_path.name
+            name_part = file_path.stem  # filename without extension
+            extension = file_path.suffix
+            
+            # Patterns to remove from the end of filenames ONLY
+            end_date_patterns = [
+                r'[._-](\d{4})[._-](\d{1,2})[._-](\d{1,2})$',  # _YYYY-MM-DD, _YYYY_MM_DD, _YYYY.MM.DD at end
+                r'[._-](\d{1,2})[._-](\d{1,2})[._-](\d{4})$',  # _MM-DD-YYYY, _MM_DD_YYYY, _MM.DD.YYYY at end
+                r'[._-](\d{4})(\d{2})(\d{2})$',                # _YYYYMMDD at end
+                r'[._-](\d{2})(\d{2})(\d{4})$',                # _MMDDYYYY at end
+                r'[._-](\d{1,2})[._-](\d{4})$',                # _MM-YYYY at end
+                r'[._-](\d{4})[._-](\d{1,2})$',                # _YYYY-MM at end
+                # Note: Removed the beginning pattern - we want to KEEP YYYY.MM.DD_ prefixes
+            ]
+            
+            new_name_part = name_part
+            date_removed = False
+            
+            print(f"Analyzing filename for end date removal: {filename}")
+            
+            for pattern in end_date_patterns:
+                match = re.search(pattern, new_name_part)
+                if match:
+                    print(f"Found end date pattern to remove: {match.group(0)}")
+                    new_name_part = re.sub(pattern, '', new_name_part)
+                    date_removed = True
+                    break
+            
+            # Clean up any trailing separators
+            new_name_part = new_name_part.rstrip('._-')
+            
+            if date_removed and new_name_part:
+                new_filename = f"{new_name_part}{extension}"
+                new_path = file_path.parent / new_filename
+                
+                # Check if new filename already exists
+                if new_path.exists():
+                    counter = 1
+                    while new_path.exists():
+                        new_filename = f"{new_name_part}_{counter}{extension}"
+                        new_path = file_path.parent / new_filename
+                        counter += 1
+                
+                # Rename the file
+                file_path.rename(new_path)
+                print(f"Removed end date from filename: {filename} -> {new_filename}")
+                
+                return True, filename, new_filename, None
+            else:
+                return False, filename, None, "No end date pattern found"
+                
+        except Exception as e:
+            return False, file_path.name, None, str(e)
+
+    def remove_dates_from_folder(self, dry_run=False):
+        """
+        Remove date patterns from all files in the folder
+        
+        Args:
+            dry_run (bool): If True, show what would be done without actually renaming
+        """
+        if not self.folder_path.exists():
+            print(f"Error: Folder '{self.folder_path}' does not exist.")
+            return
+        
+        if not self.folder_path.is_dir():
+            print(f"Error: '{self.folder_path}' is not a directory.")
+            return
+        
+        # Get all files in the folder (don't use is_valid_file since we want to process all files)
+        files = [f for f in self.folder_path.iterdir() if f.is_file() and not f.name.startswith('.')]
+        
+        if not files:
+            print(f"No files to process in '{self.folder_path}'")
+            return
+        
+        print(f"{'DRY RUN - ' if dry_run else ''}Removing dates from {len(files)} files in '{self.folder_path}'")
+        print("=" * 80)
+        
+        processed_count = 0
+        error_count = 0
+        
+        for file_path in files:
+            if dry_run:
+                # Show what would be done
+                filename = file_path.name
+                name_part = file_path.stem
+                extension = file_path.suffix
+                
+                # Check for end date patterns (keep beginning YYYY.MM.DD_ prefixes)
+                end_date_patterns = [
+                    r'[._-](\d{4})[._-](\d{1,2})[._-](\d{1,2})$',
+                    r'[._-](\d{1,2})[._-](\d{1,2})[._-](\d{4})$',
+                    r'[._-](\d{4})(\d{2})(\d{2})$',
+                    r'[._-](\d{2})(\d{2})(\d{4})$',
+                    r'[._-](\d{1,2})[._-](\d{4})$',
+                    r'[._-](\d{4})[._-](\d{1,2})$',
+                    # Note: Not removing YYYY.MM.DD_ prefixes at beginning
+                ]
+                
+                new_name_part = name_part
+                date_found = False
+                
+                for pattern in end_date_patterns:
+                    if re.search(pattern, new_name_part):
+                        new_name_part = re.sub(pattern, '', new_name_part).rstrip('._-')
+                        date_found = True
+                        break
+                
+                if date_found and new_name_part:
+                    new_filename = f"{new_name_part}{extension}"
+                    print(f"Would rename: {filename}")
+                    print(f"         to: {new_filename}")
+                    print()
+                else:
+                    print(f"No date pattern found: {filename}")
+                    print()
+            else:
+                # Actually remove dates
+                success, old_name, new_name, error = self.remove_date_from_filename(file_path)
+                
+                if success:
+                    print(f"✓ {old_name} -> {new_name}")
+                    processed_count += 1
+                else:
+                    if "No end date pattern found" not in error:
+                        print(f"✗ Error with '{old_name}': {error}")
+                        error_count += 1
+                    # Don't count "no end date pattern found" as an error
+                print()
+        
+        if not dry_run:
+            print("=" * 80)
+            print("DATE REMOVAL SUMMARY")
+            print("=" * 80)
+            print(f"Files processed: {processed_count}")
+            print(f"Errors encountered: {error_count}")
+
     def sanitize_filename(self, filename):
         """
         Sanitize filename by removing/replacing invalid characters
@@ -654,7 +803,7 @@ class DocumentRenamer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Rename documents with date prefix extracted from document content"
+        description="Rename documents with date prefix extracted from filenames, or remove dates from filenames"
     )
     parser.add_argument(
         "folder",
@@ -662,12 +811,12 @@ def main():
     )
     parser.add_argument(
         "--date",
-        help="Default date to use if none found in document (YYYY-MM-DD format). Default: today's date"
+        help="Default date to use if none found in filename (YYYY-MM-DD format). Default: today's date"
     )
     parser.add_argument(
         "--no-extract",
         action="store_true",
-        help="Don't extract dates from document content, use default/override date for all files"
+        help="Don't extract dates from filenames, use default/override date for all files"
     )
     parser.add_argument(
         "--dry-run",
@@ -679,6 +828,11 @@ def main():
         action="store_true",
         help="Don't create a summary document"
     )
+    parser.add_argument(
+        "--remove-dates",
+        action="store_true",
+        help="Remove date patterns from end of filenames instead of adding date prefixes"
+    )
     
     args = parser.parse_args()
     
@@ -687,10 +841,16 @@ def main():
         create_summary = not args.no_summary
         
         renamer = DocumentRenamer(args.folder, args.date, use_file_dates)
-        renamer.process_folder(dry_run=args.dry_run, create_summary=create_summary)
         
-        if not args.dry_run:
-            renamer.print_summary()
+        if args.remove_dates:
+            # Remove dates from filenames
+            renamer.remove_dates_from_folder(dry_run=args.dry_run)
+        else:
+            # Normal operation: add date prefixes
+            renamer.process_folder(dry_run=args.dry_run, create_summary=create_summary)
+            
+            if not args.dry_run:
+                renamer.print_summary()
             
     except Exception as e:
         print(f"Error: {e}")
