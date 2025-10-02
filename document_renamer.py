@@ -920,8 +920,120 @@ This appears to be a document that may be scanned, binary, or in a format that r
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
+    def get_document_type_description(self, file_path):
+        """Generate a concise description of what type of document this is"""
+        try:
+            file_extension = file_path.suffix.lower()
+            filename = file_path.stem
+            
+            # Remove date prefix from filename for cleaner analysis
+            if re.match(r'^\d{4}\.\d{2}\.\d{2}_', filename):
+                clean_filename = filename[11:]
+            else:
+                clean_filename = filename
+            
+            clean_filename = clean_filename.lower().replace('_', ' ').replace('-', ' ')
+            
+            # Try to read content for text files to get better classification
+            content = ""
+            is_text_file = file_extension in {'.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm', '.log'}
+            
+            if is_text_file:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(1000).lower()  # Read first 1000 chars
+                except Exception:
+                    pass
+            
+            # Analyze filename and content to determine document type
+            filename_indicators = {
+                'transcript': ['transcript', 'transcription', 'recording', 'interview', 'call', 'conversation'],
+                'contract': ['contract', 'agreement', 'terms', 'service agreement', 'nda', 'legal'],
+                'invoice': ['invoice', 'bill', 'receipt', 'payment', 'billing'],
+                'report': ['report', 'analysis', 'quarterly', 'annual', 'financial', 'summary'],
+                'meeting notes': ['meeting', 'notes', 'minutes', 'agenda', 'discussion'],
+                'email': ['email', 'message', 'correspondence', 'reply', 'forward'],
+                'proposal': ['proposal', 'quote', 'estimate', 'bid', 'rfp'],
+                'presentation': ['presentation', 'slides', 'deck', 'powerpoint'],
+                'manual': ['manual', 'guide', 'instructions', 'how to', 'tutorial'],
+                'policy': ['policy', 'procedure', 'guidelines', 'rules', 'standards'],
+                'letter': ['letter', 'correspondence', 'memo', 'memorandum'],
+                'form': ['form', 'application', 'questionnaire', 'survey'],
+                'specification': ['spec', 'specification', 'requirements', 'technical'],
+                'checklist': ['checklist', 'todo', 'tasks', 'action items'],
+                'research': ['research', 'study', 'paper', 'thesis', 'findings'],
+                'marketing': ['marketing', 'brochure', 'flyer', 'advertisement', 'promo'],
+                'resume': ['resume', 'cv', 'curriculum vitae', 'bio'],
+                'budget': ['budget', 'financial plan', 'expenses', 'costs'],
+                'calendar': ['calendar', 'schedule', 'timeline', 'dates'],
+                'log': ['log', 'activity', 'history', 'record']
+            }
+            
+            content_indicators = {
+                'transcript': ['speaker:', 'interviewer:', 'timestamp:', '[music]', '[inaudible]', 'mm-hmm', 'uh-huh'],
+                'meeting notes': ['agenda', 'attendees:', 'action items', 'next meeting', 'decisions made'],
+                'email': ['from:', 'to:', 'subject:', 'dear', 'best regards', 'sincerely'],
+                'contract': ['whereas', 'party', 'agreement', 'terms and conditions', 'signature'],
+                'invoice': ['invoice number', 'due date', 'amount due', 'billing', 'payment terms'],
+                'report': ['executive summary', 'findings', 'recommendations', 'conclusion', 'methodology'],
+                'financial': ['revenue', 'profit', 'expenses', 'budget', 'financial', 'accounting'],
+                'technical': ['function', 'parameter', 'algorithm', 'implementation', 'code', 'system'],
+                'legal': ['plaintiff', 'defendant', 'court', 'jurisdiction', 'statute', 'whereas'],
+                'medical': ['patient', 'diagnosis', 'treatment', 'symptoms', 'medical', 'doctor'],
+                'academic': ['abstract', 'methodology', 'literature review', 'bibliography', 'thesis']
+            }
+            
+            # Check filename for type indicators
+            doc_type = "document"
+            confidence = 0
+            
+            for doc_category, keywords in filename_indicators.items():
+                matches = sum(1 for keyword in keywords if keyword in clean_filename)
+                if matches > confidence:
+                    confidence = matches
+                    doc_type = doc_category
+            
+            # Check content for additional indicators (higher priority)
+            if content:
+                for doc_category, keywords in content_indicators.items():
+                    matches = sum(1 for keyword in keywords if keyword in content)
+                    if matches > confidence:
+                        confidence = matches
+                        doc_type = doc_category
+            
+            # File extension-specific defaults
+            if confidence == 0:
+                if file_extension == '.pdf':
+                    if 'invoice' in clean_filename or 'bill' in clean_filename:
+                        doc_type = "invoice"
+                    elif 'contract' in clean_filename or 'agreement' in clean_filename:
+                        doc_type = "contract"
+                    elif 'report' in clean_filename:
+                        doc_type = "report"
+                    else:
+                        doc_type = "PDF document"
+                elif file_extension in {'.doc', '.docx'}:
+                    doc_type = "Word document"
+                elif file_extension in {'.xls', '.xlsx'}:
+                    doc_type = "spreadsheet"
+                elif file_extension in {'.ppt', '.pptx'}:
+                    doc_type = "presentation"
+                elif file_extension in {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'}:
+                    doc_type = "image file"
+                elif file_extension == '.txt':
+                    doc_type = "text document"
+                elif file_extension == '.md':
+                    doc_type = "markdown document"
+                elif file_extension == '.csv':
+                    doc_type = "data file"
+            
+            return doc_type.title()
+            
+        except Exception as e:
+            return "Document"
+
     def get_document_summary(self, file_path, max_sentences=3):
-        """Generate a 3-sentence summary of the document"""
+        """Generate a 3-sentence summary of the document (kept for compatibility)"""
         if self.openai_api_key:
             return self.get_chatgpt_summary(file_path, max_sentences)
         else:
@@ -1066,20 +1178,15 @@ This appears to be a document that may be scanned, binary, or in a format that r
                 content.append(Paragraph(f"<b>File:</b> {file_path.name}", body_style))
                 content.append(Paragraph(f"<b>Type:</b> {file_ext} file, {file_size_str}", body_style))
                 
-                # Get document summary
+                # Get document type description
                 try:
-                    print(f"      🤖 Generating summary...")
-                    summary_sentences = self.get_document_summary(file_path, max_sentences=3)
-                    content.append(Paragraph("<b>Summary:</b>", body_style))
-                    
-                    for j, sentence in enumerate(summary_sentences, 1):
-                        # Clean sentence for PDF
-                        clean_sentence = sentence.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-                        content.append(Paragraph(f"{j}. {clean_sentence}", body_style))
+                    print(f"      🔍 Identifying document type...")
+                    doc_type = self.get_document_type_description(file_path)
+                    content.append(Paragraph(f"<b>Document Type:</b> {doc_type}", body_style))
                 
                 except Exception as e:
-                    print(f"      ⚠️  Error generating summary: {str(e)}")
-                    content.append(Paragraph(f"<b>Summary:</b> Error generating summary: {str(e)}", body_style))
+                    print(f"      ⚠️  Error identifying document type: {str(e)}")
+                    content.append(Paragraph(f"<b>Document Type:</b> Unknown", body_style))
                 
                 content.append(Spacer(1, 20))
                 
