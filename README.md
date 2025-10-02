@@ -17,11 +17,12 @@ A Python tool that renames documents with standardized date prefixes in `YYYY.MM
 ### Requirements
 - Python 3.6+
 - `requests` library for ChatGPT API integration
+- `reportlab` library for PDF summary generation
 
 ### Setup
 ```bash
 # Install dependencies
-pip install requests
+pip install requests reportlab
 
 # Optional: Set up OpenAI API key for enhanced summaries
 export OPENAI_API_KEY="your-api-key-here"
@@ -34,8 +35,14 @@ export OPENAI_API_KEY="your-api-key-here"
 # Rename files with date prefixes and create summaries
 python document_renamer.py /path/to/documents
 
+# Create comprehensive PDF summary without renaming files
+python document_renamer.py /path/to/documents --summarize-only
+
 # Use ChatGPT API for enhanced summaries
 python document_renamer.py /path/to/documents --openai-api-key "your-api-key"
+
+# Create AI-powered PDF summary without renaming
+python document_renamer.py /path/to/documents --summarize-only --openai-api-key "your-api-key"
 
 # Dry run to see what would happen
 python document_renamer.py /path/to/documents --dry-run
@@ -69,6 +76,47 @@ When provided with an OpenAI API key, the tool generates intelligent summaries b
 - Better handling of complex documents
 - Intelligent interpretation of scanned/binary files
 - Context-aware descriptions based on filename patterns
+
+## PDF Summary Generation
+
+The `--summarize-only` option creates a comprehensive PDF document that analyzes all files in a folder without renaming them. This is perfect for:
+
+- **Document Review**: Getting an overview of all documents in a folder
+- **Content Analysis**: Understanding what files contain without opening them
+- **Report Generation**: Creating professional summaries for stakeholders
+- **Archive Analysis**: Analyzing historical document collections
+
+### PDF Summary Features:
+- **Professional Layout**: Clean, organized PDF with proper formatting
+- **Document Titles**: Extracted and formatted from filenames
+- **File Details**: Type, size, and technical information
+- **AI Summaries**: Intelligent content analysis (with ChatGPT API)
+- **Statistics**: File type breakdown and folder analytics
+- **No File Changes**: Documents remain completely untouched
+
+### Sample PDF Content:
+```
+Document Analysis Summary
+Generated: 2025-10-02 18:30:15
+Folder: /path/to/documents
+Files Analyzed: 5
+
+1. Q4 Financial Report
+   File: 2024.12.31_Q4_Financial_Report.pdf
+   Type: PDF file, 2.3 MB
+   Summary:
+   1. This quarterly financial report analyzes company performance for Q4 2024.
+   2. The document includes revenue breakdowns, expense analysis, and profit projections.
+   3. Key metrics show 15% growth compared to previous quarter with improved margins.
+
+2. Contract Agreement
+   File: contract_agreement_2024.docx
+   Type: DOCX file, 456 KB
+   Summary:
+   1. This is a legal contract document outlining service agreements between parties.
+   2. The contract includes payment terms, deliverables, and compliance requirements.
+   3. This agreement appears to be effective from 2024 with standard business terms.
+```
 
 ## Summary Document
 

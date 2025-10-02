@@ -6,6 +6,7 @@ Document Renamer - Renames documents with date prefix and provides summaries
 import os
 import sys
 import re
+import json
 from datetime import datetime
 from pathlib import Path
 import argparse
@@ -926,6 +927,194 @@ This appears to be a document that may be scanned, binary, or in a format that r
         else:
             return self.get_fallback_summary(file_path, max_sentences)
 
+    def create_pdf_summary(self, output_dir=None, summarize_only=False):
+        """Create a comprehensive PDF summary of all documents"""
+        try:
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import inch
+            from reportlab.lib.colors import black, blue, darkblue
+        except ImportError:
+            print("Warning: reportlab library not available. Install with: pip install reportlab")
+            print("Falling back to Markdown summary...")
+            return self.create_summary_document(output_dir, summarize_only)
+        
+        if output_dir is None:
+            output_dir = self.folder_path
+        
+        output_dir = Path(output_dir)
+        timestamp = datetime.now().strftime("%Y.%m.%d")
+        
+        if summarize_only:
+            pdf_filename = f"{timestamp}_Document_Analysis_Summary.pdf"
+        else:
+            pdf_filename = f"{timestamp}_Document_Processing_Summary.pdf"
+        
+        pdf_path = output_dir / pdf_filename
+        
+        # Ensure unique filename
+        counter = 1
+        while pdf_path.exists():
+            if summarize_only:
+                pdf_filename = f"{timestamp}_Document_Analysis_Summary_{counter}.pdf"
+            else:
+                pdf_filename = f"{timestamp}_Document_Processing_Summary_{counter}.pdf"
+            pdf_path = output_dir / pdf_filename
+            counter += 1
+        
+        # Create PDF document
+        doc = SimpleDocTemplate(str(pdf_path), pagesize=A4, topMargin=1*inch, bottomMargin=1*inch)
+        
+        # Styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            spaceAfter=30,
+            textColor=darkblue,
+            alignment=1  # Center
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=16,
+            spaceAfter=12,
+            spaceBefore=20,
+            textColor=blue
+        )
+        
+        subheading_style = ParagraphStyle(
+            'CustomSubheading',
+            parent=styles['Heading3'],
+            fontSize=12,
+            spaceAfter=6,
+            spaceBefore=12,
+            textColor=black
+        )
+        
+        body_style = ParagraphStyle(
+            'CustomBody',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=6,
+            leftIndent=12
+        )
+        
+        # Content list
+        content = []
+        
+        # Title
+        if summarize_only:
+            title = "Document Analysis Summary"
+        else:
+            title = "Document Processing Summary"
+        content.append(Paragraph(title, title_style))
+        
+        # Metadata
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        folder_name = str(self.folder_path.resolve())
+        
+        content.append(Spacer(1, 20))
+        content.append(Paragraph(f"<b>Generated:</b> {current_time}", styles['Normal']))
+        content.append(Paragraph(f"<b>Folder:</b> {folder_name}", styles['Normal']))
+        
+        # Get files to process
+        if summarize_only:
+            # For summary-only mode, process all files (not just unprocessed ones)
+            all_files = []
+            for file_path in self.folder_path.iterdir():
+                if file_path.is_file() and not file_path.name.startswith('.'):
+                    all_files.append(file_path)
+            files_to_process = sorted(all_files, key=lambda x: x.name.lower())
+        else:
+            # For processing mode, use the usual logic
+            files_to_process = [
+                file_path for file_path in self.folder_path.iterdir()
+                if self.is_valid_file(file_path)
+            ]
+        
+        content.append(Paragraph(f"<b>Files Analyzed:</b> {len(files_to_process)}", styles['Normal']))
+        content.append(Spacer(1, 30))
+        
+        # Document summaries
+        if files_to_process:
+            content.append(Paragraph("Document Analysis", heading_style))
+            content.append(Spacer(1, 12))
+            
+            for i, file_path in enumerate(files_to_process, 1):
+                # Extract clean title from filename
+                filename = file_path.stem
+                if re.match(r'^\d{4}\.\d{2}\.\d{2}_', filename):
+                    clean_title = filename[11:].replace('_', ' ').replace('-', ' ').title()
+                else:
+                    clean_title = filename.replace('_', ' ').replace('-', ' ').title()
+                
+                # File details
+                file_size = file_path.stat().st_size
+                file_size_str = self.format_file_size(file_size)
+                file_ext = file_path.suffix.upper()
+                
+                # Add section
+                content.append(Paragraph(f"{i}. {clean_title}", subheading_style))
+                content.append(Paragraph(f"<b>File:</b> {file_path.name}", body_style))
+                content.append(Paragraph(f"<b>Type:</b> {file_ext} file, {file_size_str}", body_style))
+                
+                # Get document summary
+                try:
+                    summary_sentences = self.get_document_summary(file_path, max_sentences=3)
+                    content.append(Paragraph("<b>Summary:</b>", body_style))
+                    
+                    for j, sentence in enumerate(summary_sentences, 1):
+                        # Clean sentence for PDF
+                        clean_sentence = sentence.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+                        content.append(Paragraph(f"{j}. {clean_sentence}", body_style))
+                
+                except Exception as e:
+                    content.append(Paragraph(f"<b>Summary:</b> Error generating summary: {str(e)}", body_style))
+                
+                content.append(Spacer(1, 20))
+                
+                # Add page break every 3-4 documents to avoid crowding
+                if i % 4 == 0 and i < len(files_to_process):
+                    content.append(PageBreak())
+        
+        else:
+            content.append(Paragraph("No documents found to analyze.", styles['Normal']))
+        
+        # Statistics section
+        content.append(PageBreak())
+        content.append(Paragraph("Summary Statistics", heading_style))
+        content.append(Spacer(1, 12))
+        
+        # File type breakdown
+        file_types = {}
+        total_size = 0
+        
+        for file_path in files_to_process:
+            ext = file_path.suffix.lower()
+            if ext not in file_types:
+                file_types[ext] = 0
+            file_types[ext] += 1
+            total_size += file_path.stat().st_size
+        
+        content.append(Paragraph(f"<b>Total Documents:</b> {len(files_to_process)}", styles['Normal']))
+        content.append(Paragraph(f"<b>Total Size:</b> {self.format_file_size(total_size)}", styles['Normal']))
+        content.append(Spacer(1, 12))
+        
+        if file_types:
+            content.append(Paragraph("<b>File Types:</b>", styles['Normal']))
+            for ext, count in sorted(file_types.items()):
+                ext_display = ext.upper() if ext else "No extension"
+                content.append(Paragraph(f"• {ext_display}: {count} files", body_style))
+        
+        # Build PDF
+        doc.build(content)
+        
+        return pdf_path
+
     def print_summary(self):
         """Print a final summary of the operation"""
         print("=" * 80)
@@ -953,7 +1142,7 @@ This appears to be a document that may be scanned, binary, or in a format that r
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Rename documents with date prefix extracted from filenames, or remove dates from filenames"
+        description="Rename documents with date prefix extracted from filenames, remove dates from filenames, or create comprehensive PDF summaries"
     )
     parser.add_argument(
         "folder",
@@ -987,6 +1176,11 @@ def main():
         "--openai-api-key",
         help="OpenAI API key for ChatGPT-powered document summaries"
     )
+    parser.add_argument(
+        "--summarize-only",
+        action="store_true",
+        help="Create comprehensive PDF summary of all documents without renaming files (includes AI-powered summaries when --openai-api-key provided)"
+    )
     
     args = parser.parse_args()
     
@@ -996,7 +1190,16 @@ def main():
         
         renamer = DocumentRenamer(args.folder, args.date, use_file_dates, args.openai_api_key)
         
-        if args.remove_dates:
+        if args.summarize_only:
+            # Summary-only mode: create PDF summary without renaming
+            print(f"Creating comprehensive PDF summary for folder: {args.folder}")
+            print("=" * 70)
+            
+            pdf_path = renamer.create_pdf_summary(summarize_only=True)
+            print(f"\n✅ PDF summary created: {pdf_path.name}")
+            print(f"Location: {pdf_path.resolve()}")
+            
+        elif args.remove_dates:
             # Remove dates from filenames
             renamer.remove_dates_from_folder(dry_run=args.dry_run)
         else:
