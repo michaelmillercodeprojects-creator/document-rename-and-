@@ -1612,8 +1612,9 @@ This appears to be a document that may be scanned, binary, or in a format that r
                 file_size_str = self.format_file_size(file_size)
                 file_ext = file_path.suffix.upper()
                 
-                # Add document section - just title and summary
-                content.append(Paragraph(f"{i}. {clean_title}", subheading_style))
+                # Add document section with title and filename
+                title_with_filename = f"{clean_title} - {file_path.name}"
+                content.append(Paragraph(f"{i}. {title_with_filename}", subheading_style))
                 
                 # Get document content summary
                 try:
