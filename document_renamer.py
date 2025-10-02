@@ -52,16 +52,96 @@ class DocumentRenamer:
             r'(\d{4})-(\d{2})-(\d{2})',
         ]
     
+    def extract_date_from_filename(self, file_path):
+        """Extract date from filename if present"""
+        filename = file_path.name
+        found_dates = []
+        
+        # Common filename date patterns
+        filename_patterns = [
+            r'(\d{4})[._-](\d{1,2})[._-](\d{1,2})',  # YYYY-MM-DD, YYYY_MM_DD, YYYY.MM.DD
+            r'(\d{1,2})[._-](\d{1,2})[._-](\d{4})',  # MM-DD-YYYY, MM_DD_YYYY, MM.DD.YYYY
+            r'(\d{4})(\d{2})(\d{2})',                # YYYYMMDD
+            r'(\d{2})(\d{2})(\d{4})',                # MMDDYYYY
+        ]
+        
+        for pattern in filename_patterns:
+            matches = re.finditer(pattern, filename)
+            for match in matches:
+                groups = match.groups()
+                try:
+                    if len(groups[0]) == 4:  # Year first
+                        year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+                    else:  # Month/day first
+                        month, day, year = int(groups[0]), int(groups[1]), int(groups[2])
+                    
+                    if 1 <= month <= 12 and 1 <= day <= 31 and 1900 <= year <= 2100:
+                        found_date = datetime(year, month, day)
+                        found_dates.append(found_date)
+                except (ValueError, IndexError):
+                    continue
+        
+        return found_dates
+
     def extract_date_from_file(self, file_path):
         """
-        Extract date from document content with priority-based selection
+        Extract date from filename only
         
         Args:
             file_path (Path): Path to the file
             
         Returns:
-            datetime: Extracted date or default date if none found
+            datetime: Extracted date from filename or default date if none found
         """
+        filename = file_path.name
+        found_dates = []
+        
+        # Common filename date patterns (in order of preference)
+        filename_patterns = [
+            # ISO format and similar
+            (r'(\d{4})[._-](\d{1,2})[._-](\d{1,2})', 'ymd'),  # YYYY-MM-DD, YYYY_MM_DD, YYYY.MM.DD
+            (r'(\d{4})(\d{2})(\d{2})', 'ymd'),                # YYYYMMDD
+            # US format
+            (r'(\d{1,2})[._-](\d{1,2})[._-](\d{4})', 'mdy'),  # MM-DD-YYYY, MM_DD_YYYY, MM.DD.YYYY
+            (r'(\d{2})(\d{2})(\d{4})', 'mdy'),                # MMDDYYYY
+            # Alternative formats
+            (r'(\d{1,2})[._-](\d{4})', 'my'),                 # MM-YYYY (assume day 1)
+            (r'(\d{4})[._-](\d{1,2})', 'ym'),                 # YYYY-MM (assume day 1)
+        ]
+        
+        print(f"Analyzing filename: {filename}")
+        
+        for pattern, date_format in filename_patterns:
+            matches = re.finditer(pattern, filename)
+            for match in matches:
+                groups = match.groups()
+                try:
+                    if date_format == 'ymd':  # Year-Month-Day
+                        year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+                    elif date_format == 'mdy':  # Month-Day-Year
+                        month, day, year = int(groups[0]), int(groups[1]), int(groups[2])
+                    elif date_format == 'my':  # Month-Year
+                        month, year, day = int(groups[0]), int(groups[1]), 1
+                    elif date_format == 'ym':  # Year-Month
+                        year, month, day = int(groups[0]), int(groups[1]), 1
+                    
+                    # Validate date components
+                    if 1 <= month <= 12 and 1 <= day <= 31 and 1900 <= year <= 2100:
+                        found_date = datetime(year, month, day)
+                        found_dates.append(found_date)
+                        print(f"Found date {found_date.strftime('%Y-%m-%d')} in filename")
+                except (ValueError, IndexError):
+                    continue
+        
+        if found_dates:
+            # Return the first valid date found (highest priority pattern)
+            return found_dates[0]
+        else:
+            print(f"No dates found in filename, using default date")
+            return self.default_date
+
+    def extract_dates_from_content(self, file_path):
+        """Extract dates from document content with priority weighting"""
         try:
             # Read file content with different encodings
             content = ""
@@ -318,7 +398,7 @@ class DocumentRenamer:
             print(f"No files to process in '{self.folder_path}'")
             return
         
-        date_source = "extracted from document content" if self.use_file_dates else "using default/override date"
+        date_source = "extracted from filenames" if self.use_file_dates else "using default/override date"
         print(f"{'DRY RUN - ' if dry_run else ''}Processing {len(files)} files in '{self.folder_path}' ({date_source})")
         print("=" * 80)
         
